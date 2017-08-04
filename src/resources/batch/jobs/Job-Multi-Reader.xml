@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:batch="http://www.springframework.org/schema/batch" xmlns:util="http://www.springframework.org/schema/util"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xsi:schemaLocation="http://www.springframework.org/schema/batch
+		http://www.springframework.org/schema/batch/spring-batch-2.2.xsd
+		http://www.springframework.org/schema/beans
+		http://www.springframework.org/schema/beans/spring-beans-3.2.xsd
+		http://www.springframework.org/schema/context
+		http://www.springframework.org/schema/context/spring-context-3.2.xsd
+		">
+	
+	<context:component-scan base-package="com.nmic.*"/>
+	
+	<import resource="../config/context.xml" />
+	<import resource="../config/database.xml" />
+	
+	<job id="testJob" xmlns="http://www.springframework.org/schema/batch">
+		
+		<step id="step1" next="step2">
+			<tasklet>
+				<chunk reader="itemReaderH" processor="headerProcessor" writer="ItemWriterH" commit-interval="1">
+				<streams>
+						<batch:stream ref="headerFileItemReader" />						
+					</streams>
+				</chunk>
+			</tasklet>
+		</step>
+		
+		<step id="step2" next="step3">
+			<tasklet>
+				<chunk reader="itemReader" processor="transactionProcessor"  writer="ItemWriter"
+					commit-interval="1">
+					<streams>
+						<batch:stream ref="itemReaderOffset" />
+						<batch:stream ref="itemReaderAdjustment"/>
+					</streams>
+				</chunk>
+			</tasklet>
+		</step>
+		
+		
+		<step id="step3">
+		<tasklet>
+				<chunk reader="trailerReader" writer="ItemWriterT" commit-interval="1"/>				
+			</tasklet>								
+		</step>
+		
+	</job>
+ 
+ <bean id="trailerReader" class="com.nmic.multireader.TrailerReader" ></bean>
+ <bean id="trailerWritter" class="com.nmic.writter.TrailerWritter" ></bean>
+ 
+	<bean id="itemReader" class="com.nmic.multireader.MultiTableReader">
+		<property name="itemReader1" ref="itemReaderA"></property>
+		<property name="itemReader2" ref="itemReaderO"></property>
+	</bean>
+
+	<bean id="itemReaderO" class="com.nmic.multireader.OffsetReader">
+		<property name="itemReader" ref="itemReaderOffset"></property>		
+	</bean>
+
+	<bean id="itemReaderA" class="com.nmic.multireader.AdjustmentReader">
+		<property name="itemReader" ref="itemReaderAdjustment"></property>		
+	</bean>
+	
+	
+	<bean id="itemReaderH" class="com.nmic.multireader.HeaderReader">
+		<property name="itemReader" ref="headerFileItemReader"></property>		
+	</bean>
+	
+	<bean id="transactionProcessor" class="com.nmic.processor.TransactionProcessor"/>	
+	
+
+	<bean id="itemReaderAdjustment"
+		class="org.springframework.batch.item.database.JdbcCursorItemReader"
+		scope="step">
+		<property name="dataSource" ref="dataSource" />
+		<property name="sql"
+			value="select id, Account_Number, Adj_Amount , Amount_Type  , Status from org_adj order by id" />
+		<property name="rowMapper">
+			<bean class="com.nmic.mapper.AdjustmentFieldMapper" />
+		</property>
+	</bean>
+	 <bean id="header" class="com.nmic.common.HeaderConfig" ></bean>
+
+<bean id="itemReaderOffset"
+		class="org.springframework.batch.item.database.JdbcCursorItemReader"
+		scope="step">
+		<property name="dataSource" ref="dataSource" />
+		<property name="sql"
+			value=" select id,adj_id, Account_Number , Offset_type , Adj_Type , Amount	 from offset order by adj_id" />
+		<property name="rowMapper">
+			<bean class="com.nmic.mapper.OffsetFieldMapper" />
+		</property>
+	</bean>
+	
+	 
+	<bean id="ItemWriter" class="com.nmic.writter.Writter">
+		<property name="delegate">
+			<bean class="org.springframework.batch.item.file.FlatFileItemWriter">
+				
+				<property name="resource" value="file:cvs/report1.csv" />
+				<property name="appendAllowed" value="true" />
+
+				<property name="lineAggregator">
+					<bean
+						class="org.springframework.batch.item.file.transform.PassThroughLineAggregator" />
+				</property>
+			</bean>
+		</property>
+	</bean>
+
+
+  <bean id="headerFileItemReader" class="org.springframework.batch.item.file.FlatFileItemReader">
+
+		<property name="resource" value="classpath:batch/property/property.properties" />
+
+		<property name="lineMapper">
+		    <bean class="org.springframework.batch.item.file.mapping.DefaultLineMapper">
+			<property name="lineTokenizer">
+				<bean
+					class="org.springframework.batch.item.file.transform.DelimitedLineTokenizer">
+					<property name="names" value="nmicSegment,fieldName,fieldType,fieldLength,fieldvalue" />
+				</bean>
+			</property>
+			<property name="fieldSetMapper">
+				<bean class="com.nmic.mapper.HeaderMapper" />				
+			</property>
+		    </bean>
+		</property>
+
+	</bean>
+  
+	<bean id ="headerProcessor" class="com.nmic.processor.HeaderProcessor"/>
+	
+	<bean id="ItemWriterH" class="com.nmic.writter.HeaderWritter">
+		<property name="delegate">
+			<bean class="org.springframework.batch.item.file.FlatFileItemWriter">
+				
+				<property name="resource" value="file:cvs/report1.csv" />
+				<property name="shouldDeleteIfExists" value="true" />
+
+				<property name="lineAggregator">
+					<bean
+						class="org.springframework.batch.item.file.transform.PassThroughLineAggregator" />
+				</property>
+			</bean>
+		</property>
+	</bean>
+	
+		<bean id="ItemWriterT" class="com.nmic.writter.TrailerWritter">
+		<property name="delegate">
+			<bean class="org.springframework.batch.item.file.FlatFileItemWriter">
+				
+				<property name="resource" value="file:cvs/report1.csv" />
+				<property name="appendAllowed" value="true" />
+
+				<property name="lineAggregator">
+					<bean
+						class="org.springframework.batch.item.file.transform.PassThroughLineAggregator" />
+				</property>
+			</bean>
+		</property>
+	</bean>	
+
+
+</beans>
